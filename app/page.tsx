@@ -5,10 +5,11 @@ import { sessionStore } from "@/lib/session-store"
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: Promise<{ token?: string }>
+  searchParams?: Promise<{ token?: string; code?: string }>
 }) {
   const resolvedSearchParams = await searchParams
   const token = resolvedSearchParams?.token
+  const code = resolvedSearchParams?.code
   const session = sessionStore.getSession()
   const activeStreamer = session?.active
     ? {
@@ -19,7 +20,7 @@ export default async function Page({
     : null
 
   if (token) {
-    return <ClientApp />
+    return <ClientApp initialToken={token} initialCode={code} />
   }
 
   return <LandingPage activeStreamer={activeStreamer} />

@@ -30,10 +30,10 @@ import type { ClientRole, StreamStats, InputEvent } from "@/lib/types"
 
 type ClientState = "connecting" | "connected" | "error" | "ended" | "full"
 
-export function ClientApp() {
+export function ClientApp({ initialToken, initialCode }: { initialToken?: string | null; initialCode?: string | null } = {}) {
   const searchParams = useSearchParams()
-  const token = searchParams.get("token")
-  const qrCodeAccessCode = searchParams.get("code")
+  const token = initialToken || searchParams.get("token")
+  const qrCodeAccessCode = initialCode || searchParams.get("code")
 
   const [clientId] = useState(() => Math.random().toString(36).substring(2, 10) + Date.now().toString(36))
   const [state, setState] = useState<ClientState>("connecting")

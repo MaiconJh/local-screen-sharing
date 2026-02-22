@@ -1654,7 +1654,7 @@ export function HostDashboard() {
                   </>
                 )}
               </Button>
-              {isSharing && sessionAccessCode && (
+              {sessionAccessCode && (
                 <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary">
                   SENHA: {sessionAccessCode}
                 </Badge>
