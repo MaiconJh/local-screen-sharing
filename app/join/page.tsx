@@ -9,6 +9,7 @@ function JoinContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const token = searchParams.get("token")
+  const code = searchParams.get("code")
 
   useEffect(() => {
     if (!token) {
@@ -24,7 +25,7 @@ function JoinContent() {
     )
   }
 
-  return <ClientApp />
+  return <ClientApp initialToken={token} initialCode={code} />
 }
 
 export default function JoinPage() {

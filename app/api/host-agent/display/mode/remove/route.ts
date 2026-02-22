@@ -1,4 +1,4 @@
-import { proxyAgentRequest } from "../../../../_agent-proxy"
+import { proxyAgentRequest } from "../../../_agent-proxy"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"

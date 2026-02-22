@@ -1,29 +1,27 @@
-"use client"
-
-import { Suspense } from "react"
-import { useSearchParams } from "next/navigation"
 import { ClientApp } from "@/components/client/client-app"
 import { LandingPage } from "@/components/landing-page"
+import { sessionStore } from "@/lib/session-store"
 
-function PageContent() {
-  const searchParams = useSearchParams()
-  const token = searchParams.get("token")
+export default async function Page({
+  searchParams,
+}: {
+  searchParams?: Promise<{ token?: string; code?: string }>
+}) {
+  const resolvedSearchParams = await searchParams
+  const token = resolvedSearchParams?.token
+  const code = resolvedSearchParams?.code
+  const session = sessionStore.getSession()
+  const activeStreamer = session?.active
+    ? {
+      token: session.token,
+      hostLabel: session.hostLabel,
+      clientCount: session.clients.length,
+    }
+    : null
 
   if (token) {
-    return <ClientApp />
+    return <ClientApp initialToken={token} initialCode={code} />
   }
 
-  return <LandingPage />
-}
-
-export default function Page() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground font-mono text-sm">Loading...</div>
-      </div>
-    }>
-      <PageContent />
-    </Suspense>
-  )
+  return <LandingPage activeStreamer={activeStreamer} />
 }

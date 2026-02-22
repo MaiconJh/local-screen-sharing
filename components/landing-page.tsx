@@ -1,5 +1,3 @@
-"use client"
-
 import { Monitor, ArrowRight, Wifi, Shield, Zap, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -7,7 +5,16 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 
-export function LandingPage() {
+interface LandingPageProps {
+  activeStreamer: {
+    token: string
+    hostLabel: string
+    clientCount: number
+  } | null
+}
+
+export function LandingPage({ activeStreamer }: LandingPageProps) {
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -85,6 +92,23 @@ export function LandingPage() {
               on the machine you want to share. Clients join by scanning the QR code
               displayed there.
             </p>
+          </div>
+
+          <div className="w-full max-w-lg rounded-lg border border-border bg-card p-4">
+            <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Transmissões ativas</p>
+            {activeStreamer ? (
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-mono text-foreground">{activeStreamer.hostLabel || "Host"}</p>
+                  <p className="text-xs text-muted-foreground">{activeStreamer.clientCount || 0}/2 conectados</p>
+                </div>
+                <Link href={`/join?token=${activeStreamer.token}`}>
+                  <Button size="sm" className="font-mono text-xs">Ver transmissão</Button>
+                </Link>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">Nenhum host transmitindo no momento.</p>
+            )}
           </div>
         </div>
       </main>

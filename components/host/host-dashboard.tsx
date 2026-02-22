@@ -27,6 +27,13 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 import { StreamMetricsCard } from "./stream-metrics-card"
 import { AdvancedPanel } from "./advanced-panel"
@@ -150,6 +157,28 @@ function normalizeDraftProfile(
   }
 }
 
+function resolveModeManagementSupport(payload: {
+  modeManagementSupported?: boolean
+  modeManagementReason?: string | null
+  addModeSupported?: boolean
+  addModeReason?: string | null
+  removeModeSupported?: boolean
+  removeModeReason?: string | null
+}) {
+  const supported =
+    typeof payload.modeManagementSupported === "boolean"
+      ? payload.modeManagementSupported
+      : typeof payload.addModeSupported === "boolean" || typeof payload.removeModeSupported === "boolean"
+        ? Boolean(payload.addModeSupported && payload.removeModeSupported)
+        : null
+  const reason =
+    payload.modeManagementReason
+    || payload.addModeReason
+    || payload.removeModeReason
+    || null
+  return { supported, reason }
+}
+
 export function HostDashboard() {
   const [hostId] = useState(() => generateId())
   const [isSharing, setIsSharing] = useState(false)
@@ -163,12 +192,14 @@ export function HostDashboard() {
   const [agentLastEventAt, setAgentLastEventAt] = useState<number | null>(null)
   const [agentMemoryMb, setAgentMemoryMb] = useState<number | null>(null)
   const [displayActionBusy, setDisplayActionBusy] = useState<
-    "none" | "ensure" | "release" | "refresh" | "probe" | "save-profile" | "apply-profile"
+    "none" | "ensure" | "release" | "refresh" | "probe" | "save-profile" | "apply-profile" | "add-mode" | "remove-mode"
   >("none")
   const [displayProfile, setDisplayProfile] = useState<AgentDisplayProfile>(DEFAULT_DISPLAY_PROFILE)
   const [displayProfileCapabilities, setDisplayProfileCapabilities] = useState<AgentDisplayProfileCapabilities | null>(null)
   const [displayConfigureSupported, setDisplayConfigureSupported] = useState<boolean | null>(null)
   const [displayConfigureReason, setDisplayConfigureReason] = useState<string | null>(null)
+  const [displayModeManageSupported, setDisplayModeManageSupported] = useState<boolean | null>(null)
+  const [displayModeManageReason, setDisplayModeManageReason] = useState<string | null>(null)
   const [displayProfileDirty, setDisplayProfileDirty] = useState(false)
   const [agentHealth, setAgentHealth] = useState<AgentHealth>({
     available: false,
@@ -177,6 +208,8 @@ export function HostDashboard() {
   })
   const [agentMessage, setAgentMessage] = useState<string | null>(null)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [sessionAccessCode, setSessionAccessCode] = useState<string | null>(null)
+  const [sessionHostLabel, setSessionHostLabel] = useState<string>("Host")
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -200,6 +233,7 @@ export function HostDashboard() {
     controller: [],
     viewer: [],
   })
+  const lastViewerAutoApplyRef = useRef<number>(0)
 
   const [controllerStats, setControllerStats] = useState<StreamStats[]>([])
   const [viewerStats, setViewerStats] = useState<StreamStats[]>([])
@@ -219,7 +253,7 @@ export function HostDashboard() {
   )
 
   const joinUrl = sessionToken
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join?token=${sessionToken}`
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join?token=${sessionToken}${sessionAccessCode ? `&code=${sessionAccessCode}` : ""}`
     : ""
 
   const getScreenShareSupportError = () => {
@@ -242,6 +276,7 @@ export function HostDashboard() {
     if (status.display?.profile && !displayProfileDirtyRef.current) {
       setDisplayProfile(status.display.profile)
     }
+    syncDisplayManageMetadataFromStatus(status.display)
     return status
   }, [])
 
@@ -252,6 +287,7 @@ export function HostDashboard() {
     if (display.profile && !displayProfileDirtyRef.current) {
       setDisplayProfile(display.profile)
     }
+    syncDisplayManageMetadataFromStatus(display)
     return display
   }, [])
 
@@ -264,6 +300,11 @@ export function HostDashboard() {
       setDisplayConfigureSupported(data.configureSupported)
       setDisplayConfigureReason(data.configureReason || null)
     }
+    const modeManageMeta = resolveModeManagementSupport(data)
+    if (typeof modeManageMeta.supported === "boolean") {
+      setDisplayModeManageSupported(modeManageMeta.supported)
+      setDisplayModeManageReason(modeManageMeta.reason)
+    }
     if (data.profile && !displayProfileDirtyRef.current) {
       setDisplayProfile(data.profile)
     }
@@ -273,6 +314,15 @@ export function HostDashboard() {
     setAgentStatus("available")
     return data
   }, [])
+
+  function syncDisplayManageMetadataFromStatus(status?: AgentDisplayStatus) {
+    if (!status) return
+    const modeManageMeta = resolveModeManagementSupport(status)
+    if (typeof modeManageMeta.supported === "boolean") {
+      setDisplayModeManageSupported(modeManageMeta.supported)
+      setDisplayModeManageReason(modeManageMeta.reason)
+    }
+  }
 
   const updateDisplayDraft = useCallback(
     (patch: Partial<AgentDisplayProfile>) => {
@@ -304,16 +354,33 @@ export function HostDashboard() {
       if (detectedModes.length > 0) {
         const supported = profileModeSupported(detectedModes, displayProfile)
         if (!supported) {
-          setAgentMessage(
-            `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available on monitor ${displayProfile.monitorId}. Select a detected mode first.`
-          )
-          return
+          if (displayModeManageSupported === false) {
+            setAgentMessage(
+              `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available on monitor ${displayProfile.monitorId}. ${displayModeManageReason || "This provider cannot add custom modes."}`
+            )
+            return
+          }
         }
       }
     }
     setDisplayActionBusy(applyNow ? "apply-profile" : "save-profile")
     try {
       const normalizedProfile = normalizeDraftProfile(displayProfile, displayProfileCapabilities)
+      if (applyNow) {
+        const detectedModes = agentHealth.display?.detectedModes || []
+        const supported = profileModeSupported(detectedModes, normalizedProfile)
+        if (detectedModes.length > 0 && !supported) {
+          const modeResult = await hostAgentClient.addDisplayMode(normalizedProfile)
+          if (typeof modeResult.supported === "boolean") {
+            setDisplayModeManageSupported(modeResult.supported)
+            setDisplayModeManageReason(modeResult.reason || null)
+          }
+          if (modeResult.status) {
+            setAgentHealth((prev) => ({ ...prev, available: true, display: modeResult.status }))
+            syncDisplayManageMetadataFromStatus(modeResult.status)
+          }
+        }
+      }
       const data = await hostAgentClient.setDisplayProfile(normalizedProfile, { applyNow })
       if (data.profile) {
         setDisplayProfile(data.profile)
@@ -327,6 +394,7 @@ export function HostDashboard() {
       }
       if (data.status) {
         setAgentHealth((prev) => ({ ...prev, available: true, display: data.status }))
+        syncDisplayManageMetadataFromStatus(data.status)
       } else if (data.profile) {
         setAgentHealth((prev) => ({
           ...prev,
@@ -338,11 +406,42 @@ export function HostDashboard() {
         }))
       }
       setAgentStatus("available")
-      displayProfileDirtyRef.current = false
-      setDisplayProfileDirty(false)
+
+      let keepDraftDirty = false
+      if (applyNow) {
+        try {
+          const probeStatus = await hostAgentClient.probeDisplay()
+          setAgentHealth((prev) => ({ ...prev, available: true, display: probeStatus }))
+          syncDisplayManageMetadataFromStatus(probeStatus)
+
+          const currentDetectedMode = (probeStatus.detectedModes || []).find((mode) => mode.current)
+          if (probeStatus.targetMonitorFound === false) {
+            keepDraftDirty = true
+            setAgentMessage(`Display profile saved, but target monitor ${normalizedProfile.monitorId} is not currently detected.`)
+          } else if (currentDetectedMode) {
+            const currentMatchesDraft =
+              currentDetectedMode.width === normalizedProfile.width
+              && currentDetectedMode.height === normalizedProfile.height
+              && currentDetectedMode.hz === normalizedProfile.refreshHz
+              && currentDetectedMode.bitDepth === normalizedProfile.colorDepth
+            if (!currentMatchesDraft) {
+              keepDraftDirty = true
+              setAgentMessage(
+                `Display profile saved, but active mode is ${currentDetectedMode.width}x${currentDetectedMode.height}@${currentDetectedMode.hz}Hz ${currentDetectedMode.bitDepth}bit (requested ${normalizedProfile.width}x${normalizedProfile.height}@${normalizedProfile.refreshHz}Hz ${normalizedProfile.colorDepth}bit).`
+              )
+            }
+          }
+        } catch {
+          // keep previous success path when probe is unavailable
+        }
+      }
+
+      displayProfileDirtyRef.current = keepDraftDirty
+      setDisplayProfileDirty(keepDraftDirty)
+
       if (applyNow && data.configure?.applied === false) {
         setAgentMessage(data.configure.warning || "Display profile saved. Provider has no configure command.")
-      } else {
+      } else if (!keepDraftDirty) {
         setAgentMessage(applyNow ? "Display profile saved and applied." : "Display profile saved.")
       }
     } catch (error) {
@@ -354,7 +453,7 @@ export function HostDashboard() {
     } finally {
       setDisplayActionBusy("none")
     }
-  }, [agentHealth.display, displayConfigureReason, displayConfigureSupported, displayProfile, displayProfileCapabilities])
+  }, [agentHealth.display, displayConfigureReason, displayConfigureSupported, displayModeManageReason, displayModeManageSupported, displayProfile, displayProfileCapabilities])
 
   const setDisplayProfileNumberField = useCallback(
     (
@@ -391,6 +490,7 @@ export function HostDashboard() {
     try {
       const display = await hostAgentClient.ensureDisplay("extend")
       setAgentHealth((prev) => ({ ...prev, available: true, display }))
+      syncDisplayManageMetadataFromStatus(display)
       if (display.profile && !displayProfileDirtyRef.current) {
         setDisplayProfile(display.profile)
       }
@@ -410,6 +510,7 @@ export function HostDashboard() {
     try {
       const display = await hostAgentClient.releaseDisplay()
       setAgentHealth((prev) => ({ ...prev, available: true, display }))
+      syncDisplayManageMetadataFromStatus(display)
       if (display.profile && !displayProfileDirtyRef.current) {
         setDisplayProfile(display.profile)
       }
@@ -441,6 +542,7 @@ export function HostDashboard() {
     try {
       const display = await hostAgentClient.probeDisplay()
       setAgentHealth((prev) => ({ ...prev, available: true, display }))
+      syncDisplayManageMetadataFromStatus(display)
       if (display.profile && !displayProfileDirtyRef.current) {
         setDisplayProfile(display.profile)
       }
@@ -454,6 +556,48 @@ export function HostDashboard() {
       setDisplayActionBusy("none")
     }
   }, [])
+
+  const addDisplayMode = useCallback(async () => {
+    setDisplayActionBusy("add-mode")
+    try {
+      const data = await hostAgentClient.addDisplayMode(displayProfile)
+      if (typeof data.supported === "boolean") {
+        setDisplayModeManageSupported(data.supported)
+        setDisplayModeManageReason(data.reason || null)
+      }
+      if (data.status) {
+        setAgentHealth((prev) => ({ ...prev, available: true, display: data.status }))
+        syncDisplayManageMetadataFromStatus(data.status)
+      }
+      setAgentStatus("available")
+      setAgentMessage(data.reason || "Display mode added on provider.")
+    } catch (error) {
+      setAgentMessage(error instanceof Error ? error.message : "Failed to add display mode.")
+    } finally {
+      setDisplayActionBusy("none")
+    }
+  }, [displayProfile])
+
+  const removeDisplayMode = useCallback(async () => {
+    setDisplayActionBusy("remove-mode")
+    try {
+      const data = await hostAgentClient.removeDisplayMode(displayProfile)
+      if (typeof data.supported === "boolean") {
+        setDisplayModeManageSupported(data.supported)
+        setDisplayModeManageReason(data.reason || null)
+      }
+      if (data.status) {
+        setAgentHealth((prev) => ({ ...prev, available: true, display: data.status }))
+        syncDisplayManageMetadataFromStatus(data.status)
+      }
+      setAgentStatus("available")
+      setAgentMessage(data.reason || "Display mode removed from provider.")
+    } catch (error) {
+      setAgentMessage(error instanceof Error ? error.message : "Failed to remove display mode.")
+    } finally {
+      setDisplayActionBusy("none")
+    }
+  }, [displayProfile])
 
   const toCaptureMode = useCallback((value: unknown): AgentCaptureMode => {
     if (value === "virtual-display" || value === "desktop-capture") return value
@@ -748,6 +892,7 @@ export function HostDashboard() {
             !providerDisabled
             && statusDetectedModes.length > 0
             && !profileModeSupported(statusDetectedModes, normalizedProfile)
+            && displayModeManageSupported === false
           ) {
             setStartError(
               `Modo ${normalizedProfile.width}x${normalizedProfile.height}@${normalizedProfile.refreshHz}Hz nao esta nos modos detectados do monitor ${normalizedProfile.monitorId}.`
@@ -790,7 +935,7 @@ export function HostDashboard() {
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", hostId }),
+        body: JSON.stringify({ action: "create", hostId, hostLabel: `Host ${hostId.slice(0, 6)}` }),
       })
       if (!res.ok) {
         throw new Error(`Session creation failed: ${res.status}`)
@@ -816,6 +961,7 @@ export function HostDashboard() {
             const displayFromStart = startResult.status?.display || startResult.displayEnsure?.status
             if (displayFromStart) {
               setAgentHealth((prev) => ({ ...prev, display: displayFromStart }))
+              syncDisplayManageMetadataFromStatus(displayFromStart)
             }
             setAgentMessage("Host Agent session started. Display was prepared before capture.")
           } catch {
@@ -824,6 +970,8 @@ export function HostDashboard() {
         }
 
         setSessionToken(data.session.token)
+        setSessionAccessCode(data.session.accessCode || null)
+        setSessionHostLabel(data.session.hostLabel || `Host ${hostId.slice(0, 6)}`)
         setSessionId(data.session.id)
         setIsSharing(true)
         setStreamState("awaiting-clients")
@@ -921,6 +1069,57 @@ export function HostDashboard() {
       ) || null
     }
 
+    if (signal.type === "viewer-capabilities" && resolvedRole === "viewer") {
+      if (!useHostAgent || agentStatus !== "available" || displayConfigureSupported === false) return
+      if (agentHealth.captureMode !== "virtual-display") {
+        setAgentMessage("Viewer connected. Auto-resolution is disabled in desktop-capture mode to avoid interrupting the stream.")
+        return
+      }
+
+      const now = Date.now()
+      if (now - lastViewerAutoApplyRef.current < 4000) return
+      lastViewerAutoApplyRef.current = now
+
+      const payload = signal.payload as {
+        width?: number
+        height?: number
+        availWidth?: number
+        availHeight?: number
+      }
+      const baseWidth = Number(payload.availWidth || payload.width)
+      const baseHeight = Number(payload.availHeight || payload.height)
+      if (!Number.isFinite(baseWidth) || !Number.isFinite(baseHeight) || baseWidth < 320 || baseHeight < 240) return
+
+      const normalized = normalizeDraftProfile(
+        {
+          ...displayProfile,
+          width: baseWidth,
+          height: baseHeight,
+        },
+        displayProfileCapabilities
+      )
+
+      try {
+        setDisplayActionBusy("apply-profile")
+        const result = await hostAgentClient.setDisplayProfile(normalized, { applyNow: true })
+        if (result.profile) {
+          setDisplayProfile(result.profile)
+        }
+        if (result.status) {
+          setAgentHealth((prev) => ({ ...prev, available: true, display: result.status }))
+          syncDisplayManageMetadataFromStatus(result.status)
+        }
+        displayProfileDirtyRef.current = false
+        setDisplayProfileDirty(false)
+        setAgentMessage(`Display auto-adjusted to viewer resolution ${normalized.width}x${normalized.height}.`)
+      } catch {
+        setAgentMessage("Viewer connected, but failed to auto-adjust display profile.")
+      } finally {
+        setDisplayActionBusy("none")
+      }
+      return
+    }
+
     if (!pc) return
     const roleForPc: ClientRole | undefined =
       resolvedRole
@@ -963,7 +1162,7 @@ export function HostDashboard() {
         console.error("[v0] Failed to add ICE candidate:", err)
       }
     }
-  }, [sessionData])
+  }, [agentHealth.captureMode, agentStatus, displayConfigureSupported, displayProfile, displayProfileCapabilities, sessionData, useHostAgent])
 
   const stopSharing = useCallback(async () => {
     setStreamState("stopping")
@@ -1001,6 +1200,7 @@ export function HostDashboard() {
         try {
           const displayStatus = await hostAgentClient.releaseDisplay()
           setAgentHealth((prev) => ({ ...prev, display: displayStatus }))
+          syncDisplayManageMetadataFromStatus(displayStatus)
           if (displayStatus.profile && !displayProfileDirtyRef.current) {
             setDisplayProfile(displayStatus.profile)
           }
@@ -1020,6 +1220,7 @@ export function HostDashboard() {
 
     setIsSharing(false)
     setSessionToken(null)
+    setSessionAccessCode(null)
     setSessionId(null)
     setControllerStats([])
     setViewerStats([])
@@ -1101,6 +1302,7 @@ export function HostDashboard() {
           if (payload.status.display?.profile && !displayProfileDirtyRef.current) {
             setDisplayProfile(payload.status.display.profile)
           }
+          syncDisplayManageMetadataFromStatus(payload.status.display)
           setAgentHealth({
             available: true,
             running: Boolean(payload.status.running),
@@ -1294,6 +1496,12 @@ export function HostDashboard() {
         ? "UNSUPPORTED"
         : "UNKNOWN"
   const providerMode = agentHealth.display?.mode || "unknown"
+  const providerModeManageLabel =
+    displayModeManageSupported === true
+      ? "SUPPORTED"
+      : displayModeManageSupported === false
+        ? "UNSUPPORTED"
+        : "UNKNOWN"
   const detectedModes = agentHealth.display?.detectedModes || []
   const detectedMonitorIds = agentHealth.display?.detectedMonitorIds || []
   const targetMonitorFound = agentHealth.display?.targetMonitorFound
@@ -1306,13 +1514,17 @@ export function HostDashboard() {
     hz: displayProfile.refreshHz,
   })
   const selectedModeDetected = profileModeSupported(displayModeOptions, displayProfile)
-  const invalidDraftModeForDetectedList = displayModeOptions.length > 0 && !selectedModeDetected
+  const selectedModeLabel = selectedModeDetected
+    ? `${displayProfile.width}x${displayProfile.height} @${displayProfile.refreshHz}Hz ${displayProfile.colorDepth}bit`
+    : `Custom ${displayProfile.width}x${displayProfile.height} @${displayProfile.refreshHz}Hz ${displayProfile.colorDepth}bit`
+  const modeMissingFromDetectedList = displayModeOptions.length > 0 && !selectedModeDetected
+  const invalidDraftModeForDetectedList = modeMissingFromDetectedList && displayModeManageSupported === false
   const saveApplyBlockedByMode = targetMonitorFound === false || invalidDraftModeForDetectedList
   const saveApplyBlockReason =
     targetMonitorFound === false
       ? `Target monitor ${displayProfile.monitorId} not detected.`
       : invalidDraftModeForDetectedList
-        ? `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available in detected modes.`
+        ? `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available in detected modes and provider cannot add it.`
         : null
   const saveApplyDisabled = displayControlsDisabled || displayConfigureSupported === false || saveApplyBlockedByMode
   const startBlockedByProvider =
@@ -1333,6 +1545,9 @@ export function HostDashboard() {
         : null
   const profileApplyInProgress = displayActionBusy === "apply-profile"
   const profileSaveInProgress = displayActionBusy === "save-profile"
+  const modeAddInProgress = displayActionBusy === "add-mode"
+  const modeRemoveInProgress = displayActionBusy === "remove-mode"
+  const canManageModes = displayModeManageSupported !== false
   const stateBadgeClass =
     streamState === "streaming"
       ? "bg-primary/15 text-primary border border-primary/30 font-mono text-xs"
@@ -1443,6 +1658,11 @@ export function HostDashboard() {
                   </>
                 )}
               </Button>
+              {sessionAccessCode && (
+                <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary">
+                  SENHA: {sessionAccessCode}
+                </Badge>
+              )}
             </div>
           </div>
         </header>
@@ -1524,6 +1744,17 @@ export function HostDashboard() {
                         </TooltipTrigger>
                         <TooltipContent>Copy join URL</TooltipContent>
                       </Tooltip>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 rounded-md border border-border bg-secondary/20 p-2.5">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-muted-foreground">Host</span>
+                        <span className="text-foreground">{sessionHostLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-muted-foreground">Access code</span>
+                        <span className="text-primary tracking-wider">{sessionAccessCode || "------"}</span>
+                      </div>
                     </div>
 
                     <Separator />
@@ -1714,33 +1945,35 @@ export function HostDashboard() {
                             </Badge>
                           </div>
                           <div className="mt-2 grid grid-cols-1 gap-2">
-                            <select
-                              className="h-7 rounded-md border border-input bg-transparent px-2 text-[10px] font-mono text-foreground"
-                              value={
-                                selectedModeDetected
-                                  ? selectedModeKey
-                                  : "__custom__"
-                              }
-                              onChange={(event) => {
-                                selectDetectedDisplayMode(event.target.value)
-                              }}
+                            <Select
+                              value={selectedModeDetected ? selectedModeKey : "__custom__"}
+                              onValueChange={selectDetectedDisplayMode}
                               disabled={displayControlsDisabled || displayModeOptions.length === 0}
                             >
-                              {displayModeOptions.length === 0 ? (
-                                <option value={selectedModeKey}>No detected modes (run Probe Provider)</option>
-                              ) : (
-                                <>
-                                  <option value="__custom__">
-                                    Current custom: {displayProfile.width}x{displayProfile.height} @{displayProfile.refreshHz}Hz {displayProfile.colorDepth}bit
-                                  </option>
-                                  {displayModeOptions.map((mode) => (
-                                    <option key={modeKey(mode)} value={modeKey(mode)}>
-                                      {mode.width}x{mode.height} @{mode.hz}Hz {mode.bitDepth}bit{mode.current ? " (current)" : ""}
-                                    </option>
-                                  ))}
-                                </>
-                              )}
-                            </select>
+                              <SelectTrigger className="h-7 w-full text-[10px] font-mono text-foreground">
+                                <SelectValue placeholder="No detected modes" aria-label={selectedModeLabel}>
+                                  {selectedModeLabel}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {displayModeOptions.length === 0 ? (
+                                  <SelectItem value={selectedModeKey}>
+                                    No detected modes (run Probe Provider)
+                                  </SelectItem>
+                                ) : (
+                                  <>
+                                    <SelectItem value="__custom__">
+                                      Custom {displayProfile.width}x{displayProfile.height} @{displayProfile.refreshHz}Hz {displayProfile.colorDepth}bit
+                                    </SelectItem>
+                                    {displayModeOptions.map((mode) => (
+                                      <SelectItem key={modeKey(mode)} value={modeKey(mode)}>
+                                        {mode.width}x{mode.height} @{mode.hz}Hz {mode.bitDepth}bit{mode.current ? " (current)" : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </>
+                                )}
+                              </SelectContent>
+                            </Select>
                             {targetMonitorFound === false && (
                               <p className="text-[10px] font-mono text-amber-600">
                                 Target monitor {displayProfile.monitorId} not detected by provider.
@@ -1748,7 +1981,12 @@ export function HostDashboard() {
                             )}
                             {invalidDraftModeForDetectedList && (
                               <p className="text-[10px] font-mono text-amber-600">
-                                Current draft mode is not in detected list. Pick a detected mode before Save + Apply.
+                                Current draft mode is not in detected list and provider cannot add custom modes.
+                              </p>
+                            )}
+                            {modeMissingFromDetectedList && displayModeManageSupported !== false && (
+                              <p className="text-[10px] font-mono text-muted-foreground">
+                                Draft mode is not currently detected. Save + Apply will try Add Mode first.
                               </p>
                             )}
                           </div>
@@ -1879,6 +2117,28 @@ export function HostDashboard() {
                               {profileApplyInProgress ? "Applying..." : "Save + Apply"}
                             </Button>
                             <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[10px] font-mono"
+                              onClick={() => {
+                                void addDisplayMode()
+                              }}
+                              disabled={displayControlsDisabled || !canManageModes}
+                            >
+                              {modeAddInProgress ? "Adding..." : "Add Mode"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[10px] font-mono"
+                              onClick={() => {
+                                void removeDisplayMode()
+                              }}
+                              disabled={displayControlsDisabled || !canManageModes}
+                            >
+                              {modeRemoveInProgress ? "Removing..." : "Remove Mode"}
+                            </Button>
+                            <Button
                               variant="ghost"
                               size="sm"
                               className="h-7 text-[10px] font-mono"
@@ -1903,6 +2163,11 @@ export function HostDashboard() {
                               {saveApplyBlockReason}
                             </p>
                           )}
+                          {displayModeManageSupported === false && (
+                            <p className="mt-1 text-[10px] font-mono text-amber-600">
+                              {displayModeManageReason || "Current provider does not support ADD/REMOVE mode commands."}
+                            </p>
+                          )}
                           <div className="mt-2 rounded-md border border-border/70 bg-background/20 p-2.5">
                             <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
                               Provider Info & Limits
@@ -1916,6 +2181,10 @@ export function HostDashboard() {
                               </span>
                               <span className="text-muted-foreground">Display mode</span>
                               <span className="text-foreground">{providerMode}</span>
+                              <span className="text-muted-foreground">Mode add/remove</span>
+                              <span className={displayModeManageSupported === false ? "text-amber-600" : "text-foreground"}>
+                                {providerModeManageLabel}
+                              </span>
                               <span className="text-muted-foreground">Target monitor</span>
                               <span className="text-foreground">{displayProfile.monitorId}</span>
                               <span className="text-muted-foreground">Detected monitors</span>
@@ -1957,9 +2226,9 @@ export function HostDashboard() {
                                 {effectiveDisplayCapabilities.orientation.join(" / ")}
                               </span>
                             </div>
-                            {displayConfigureReason && (
+                            {(displayConfigureReason || displayModeManageReason) && (
                               <p className="mt-2 text-[10px] font-mono text-muted-foreground break-words">
-                                Reason: {displayConfigureReason}
+                                Reason: {[displayConfigureReason, displayModeManageReason].filter(Boolean).join(" | ")}
                               </p>
                             )}
                           </div>
