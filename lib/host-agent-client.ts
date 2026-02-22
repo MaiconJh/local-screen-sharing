@@ -49,6 +49,20 @@ export interface AgentDisplayStatus {
   lastError?: string | null
   lastActionAt?: number | null
   lastOutput?: string | null
+  modeManagementSupported?: boolean
+  modeManagementReason?: string | null
+  addModeSupported?: boolean
+  addModeReason?: string | null
+  removeModeSupported?: boolean
+  removeModeReason?: string | null
+}
+
+export interface AgentDisplayModeManageResponse {
+  success?: boolean
+  supported?: boolean
+  reason?: string | null
+  status?: AgentDisplayStatus
+  error?: string
 }
 
 export interface HostAgentStatusResponse {
@@ -91,6 +105,12 @@ export interface AgentDisplayProfileResponse {
   capabilities?: AgentDisplayProfileCapabilities
   configureSupported?: boolean
   configureReason?: string | null
+  modeManagementSupported?: boolean
+  modeManagementReason?: string | null
+  addModeSupported?: boolean
+  addModeReason?: string | null
+  removeModeSupported?: boolean
+  removeModeReason?: string | null
   status?: AgentDisplayStatus
   configure?: {
     success?: boolean
@@ -262,6 +282,30 @@ export class HostAgentClient {
     if (!data.success) {
       const payload = data as AgentDisplayProfileResponse & { error?: string }
       throw new Error(payload.error || data.configure?.error || "Failed to configure display profile")
+    }
+    return data
+  }
+
+  async addDisplayMode(profile: Partial<AgentDisplayProfile>): Promise<AgentDisplayModeManageResponse> {
+    const data = await this.request<AgentDisplayModeManageResponse>("/display/mode/add", {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+      timeoutMs: 9000,
+    })
+    if (!data.success) {
+      throw new Error(data.error || data.reason || "Failed to add display mode")
+    }
+    return data
+  }
+
+  async removeDisplayMode(profile: Partial<AgentDisplayProfile>): Promise<AgentDisplayModeManageResponse> {
+    const data = await this.request<AgentDisplayModeManageResponse>("/display/mode/remove", {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+      timeoutMs: 9000,
+    })
+    if (!data.success) {
+      throw new Error(data.error || data.reason || "Failed to remove display mode")
     }
     return data
   }
