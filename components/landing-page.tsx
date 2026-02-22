@@ -1,4 +1,5 @@
 import { Monitor, ArrowRight, Wifi, Shield, Zap, Eye } from "lucide-react"
+import useSWR from "swr"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
