@@ -403,11 +403,42 @@ export function HostDashboard() {
         }))
       }
       setAgentStatus("available")
-      displayProfileDirtyRef.current = false
-      setDisplayProfileDirty(false)
+
+      let keepDraftDirty = false
+      if (applyNow) {
+        try {
+          const probeStatus = await hostAgentClient.probeDisplay()
+          setAgentHealth((prev) => ({ ...prev, available: true, display: probeStatus }))
+          syncDisplayManageMetadataFromStatus(probeStatus)
+
+          const currentDetectedMode = (probeStatus.detectedModes || []).find((mode) => mode.current)
+          if (probeStatus.targetMonitorFound === false) {
+            keepDraftDirty = true
+            setAgentMessage(`Display profile saved, but target monitor ${normalizedProfile.monitorId} is not currently detected.`)
+          } else if (currentDetectedMode) {
+            const currentMatchesDraft =
+              currentDetectedMode.width === normalizedProfile.width
+              && currentDetectedMode.height === normalizedProfile.height
+              && currentDetectedMode.hz === normalizedProfile.refreshHz
+              && currentDetectedMode.bitDepth === normalizedProfile.colorDepth
+            if (!currentMatchesDraft) {
+              keepDraftDirty = true
+              setAgentMessage(
+                `Display profile saved, but active mode is ${currentDetectedMode.width}x${currentDetectedMode.height}@${currentDetectedMode.hz}Hz ${currentDetectedMode.bitDepth}bit (requested ${normalizedProfile.width}x${normalizedProfile.height}@${normalizedProfile.refreshHz}Hz ${normalizedProfile.colorDepth}bit).`
+              )
+            }
+          }
+        } catch {
+          // keep previous success path when probe is unavailable
+        }
+      }
+
+      displayProfileDirtyRef.current = keepDraftDirty
+      setDisplayProfileDirty(keepDraftDirty)
+
       if (applyNow && data.configure?.applied === false) {
         setAgentMessage(data.configure.warning || "Display profile saved. Provider has no configure command.")
-      } else {
+      } else if (!keepDraftDirty) {
         setAgentMessage(applyNow ? "Display profile saved and applied." : "Display profile saved.")
       }
     } catch (error) {
