@@ -1071,6 +1071,10 @@ export function HostDashboard() {
 
     if (signal.type === "viewer-capabilities" && resolvedRole === "viewer") {
       if (!useHostAgent || agentStatus !== "available" || displayConfigureSupported === false) return
+      if (agentHealth.captureMode !== "virtual-display") {
+        setAgentMessage("Viewer connected. Auto-resolution is disabled in desktop-capture mode to avoid interrupting the stream.")
+        return
+      }
 
       const now = Date.now()
       if (now - lastViewerAutoApplyRef.current < 4000) return
@@ -1158,7 +1162,7 @@ export function HostDashboard() {
         console.error("[v0] Failed to add ICE candidate:", err)
       }
     }
-  }, [agentStatus, displayConfigureSupported, displayProfile, displayProfileCapabilities, sessionData, useHostAgent])
+  }, [agentHealth.captureMode, agentStatus, displayConfigureSupported, displayProfile, displayProfileCapabilities, sessionData, useHostAgent])
 
   const stopSharing = useCallback(async () => {
     setStreamState("stopping")
