@@ -7,16 +7,19 @@ class SessionStore {
   private session: Session | null = null
   private signalListeners: Map<string, SignalListener[]> = new Map()
 
-  createSession(hostId: string): Session {
+  createSession(hostId: string, hostLabel?: string): Session {
     if (this.session?.active) {
       this.destroySession()
     }
 
     const token = randomBytes(32).toString("hex")
+    const accessCode = String(Math.floor(100000 + Math.random() * 900000))
     this.session = {
       id: randomBytes(16).toString("hex"),
       token,
+      accessCode,
       hostId,
+      hostLabel: hostLabel?.trim() || `Host-${hostId.slice(0, 6)}`,
       active: true,
       createdAt: Date.now(),
       clients: [],
@@ -39,11 +42,14 @@ class SessionStore {
     return this.session
   }
 
-  validateToken(token: string): Session | null {
-    if (this.session?.active && this.session.token === token) {
-      return this.session
+  validateToken(token: string, accessCode?: string): Session | null {
+    if (!this.session?.active || this.session.token !== token) {
+      return null
     }
-    return null
+    if (accessCode && this.session.accessCode !== accessCode) {
+      return null
+    }
+    return this.session
   }
 
   addClient(clientId: string): { success: boolean; role: ClientRole; error?: string } {

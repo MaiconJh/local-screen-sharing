@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
@@ -29,15 +30,22 @@ import type { ClientRole, StreamStats, InputEvent } from "@/lib/types"
 
 type ClientState = "connecting" | "connected" | "error" | "ended" | "full"
 
-export function ClientApp() {
+export function ClientApp({ initialToken, initialCode }: { initialToken?: string | null; initialCode?: string | null } = {}) {
   const searchParams = useSearchParams()
-  const token = searchParams.get("token")
+  const token = initialToken || searchParams.get("token")
+  const qrCodeAccessCode = initialCode || searchParams.get("code")
 
   const [clientId] = useState(() => Math.random().toString(36).substring(2, 10) + Date.now().toString(36))
   const [state, setState] = useState<ClientState>("connecting")
   const [role, setRole] = useState<ClientRole | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [hostLabel, setHostLabel] = useState<string>("Host")
+  const [hostSignalTarget, setHostSignalTarget] = useState<string | null>(null)
+  const [accessCode, setAccessCode] = useState("")
+  const [authReady, setAuthReady] = useState(false)
+  const [isJoining, setIsJoining] = useState(false)
   const [errorMsg, setErrorMsg] = useState("")
+  const attemptedQrAutoJoinRef = useRef(false)
 
   const [showStats, setShowStats] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -68,7 +76,6 @@ export function ClientApp() {
     }
   }, [])
 
-  // Join session
   useEffect(() => {
     if (!token) {
       setState("error")
@@ -76,42 +83,59 @@ export function ClientApp() {
       return
     }
 
-    const join = async () => {
+    const preview = async () => {
       try {
         const res = await fetch("/api/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "join", token, clientId }),
+          body: JSON.stringify({ action: "preview", token }),
         })
         const data = await res.json()
-
         if (!data.success) {
-          setState(data.error === "Host full" ? "full" : "ended")
-          setErrorMsg(data.error || "Unable to join")
+          setState("ended")
+          setErrorMsg(data.error || "Session ended")
           return
         }
-
-        setRole(data.role)
-        setSessionId(data.sessionId)
-        setState("connected")
-
-        // Open SSE for signaling
-        const evtSource = new EventSource(`/api/signal?listenerId=${clientId}`)
-        eventSourceRef.current = evtSource
-
-        evtSource.onmessage = async (event) => {
-          const signal = JSON.parse(event.data)
-          if (signal.type === "connected") return
-          await handleHostSignal(signal)
-        }
+        setHostLabel(data.hostLabel || "Host")
+        setAuthReady(true)
       } catch {
         setState("error")
-        setErrorMsg("Failed to connect to host")
+        setErrorMsg("Failed to load host information")
       }
     }
 
-    join()
+    preview()
+  }, [token])
 
+  useEffect(() => {
+    if (!qrCodeAccessCode) return
+    setAccessCode(String(qrCodeAccessCode).replace(/\D+/g, "").slice(0, 6))
+  }, [qrCodeAccessCode])
+
+  const sendViewerCapabilities = useCallback(async () => {
+    if (!sessionId || !hostSignalTarget) return
+    const payload = {
+      width: window.screen.width,
+      height: window.screen.height,
+      availWidth: window.screen.availWidth,
+      availHeight: window.screen.availHeight,
+      devicePixelRatio: window.devicePixelRatio || 1,
+    }
+    await fetch("/api/signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "viewer-capabilities",
+        from: clientId,
+        to: hostSignalTarget,
+        sessionId,
+        payload,
+      }),
+    })
+  }, [clientId, hostSignalTarget, sessionId])
+
+  // Join session cleanup
+  useEffect(() => {
     return () => {
       eventSourceRef.current?.close()
       pcRef.current?.close()
@@ -120,8 +144,7 @@ export function ClientApp() {
       setHasRemoteStream(false)
       setPlaybackBlocked(false)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, clientId])
+  }, [])
 
   const handleHostSignal = useCallback(
     async (signal: { type: string; from: string; payload: unknown }) => {
@@ -191,6 +214,8 @@ export function ClientApp() {
           }),
         })
 
+        await sendViewerCapabilities()
+
         // Start stats collection
         statsIntervalRef.current = setInterval(async () => {
           try {
@@ -240,8 +265,86 @@ export function ClientApp() {
         await pc.addIceCandidate(new RTCIceCandidate(candidate))
       }
     },
-    [clientId, sessionId, tryPlayVideo]
+    [clientId, sendViewerCapabilities, sessionId, tryPlayVideo]
   )
+
+  const joinSessionWithCode = useCallback(async (code: string) => {
+    if (!token) return
+    setIsJoining(true)
+    setErrorMsg("")
+    try {
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "join", token, accessCode: code.trim(), clientId }),
+      })
+      const data = await res.json()
+
+      if (!data.success) {
+        if (data.error === "Host full") {
+          setState("full")
+        } else if (data.error === "Invalid access code") {
+          setState("connecting")
+        } else {
+          setState("ended")
+        }
+        setErrorMsg(data.error || "Unable to join")
+        return
+      }
+
+      setRole(data.role)
+      setSessionId(data.sessionId)
+      setHostSignalTarget(`host-${data.hostId}`)
+      setHostLabel(data.hostLabel || hostLabel)
+      setState("connected")
+
+      const evtSource = new EventSource(`/api/signal?listenerId=${clientId}`)
+      eventSourceRef.current = evtSource
+
+      evtSource.onmessage = async (event) => {
+        const signal = JSON.parse(event.data)
+        if (signal.type === "connected") return
+        await handleHostSignal(signal)
+      }
+
+      await fetch("/api/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "viewer-capabilities",
+          from: clientId,
+          to: `host-${data.hostId}`,
+          sessionId: data.sessionId,
+          payload: {
+            width: window.screen.width,
+            height: window.screen.height,
+            availWidth: window.screen.availWidth,
+            availHeight: window.screen.availHeight,
+            devicePixelRatio: window.devicePixelRatio || 1,
+          },
+        }),
+      })
+    } catch {
+      setState("error")
+      setErrorMsg("Failed to connect to host")
+    } finally {
+      setIsJoining(false)
+    }
+  }, [clientId, handleHostSignal, hostLabel, token])
+
+  const joinSession = useCallback(async () => {
+    await joinSessionWithCode(accessCode)
+  }, [accessCode, joinSessionWithCode])
+
+
+  useEffect(() => {
+    if (!authReady || !qrCodeAccessCode || attemptedQrAutoJoinRef.current) return
+    const normalized = String(qrCodeAccessCode).replace(/\D+/g, "").slice(0, 6)
+    if (normalized.length < 4) return
+    attemptedQrAutoJoinRef.current = true
+    setAccessCode(normalized)
+    void joinSessionWithCode(normalized)
+  }, [authReady, joinSessionWithCode, qrCodeAccessCode])
 
   // Input forwarding for controller
   const sendInput = useCallback(
@@ -399,6 +502,46 @@ export function ClientApp() {
 
   // Error / not connected states
   if (state === "connecting") {
+    if (authReady) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <Card className="w-full max-w-md border-border bg-card">
+            <CardContent className="pt-6 space-y-4">
+              <div className="space-y-1">
+                <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Conectando a</p>
+                <h1 className="text-lg font-mono text-foreground">{hostLabel}</h1>
+                <p className="text-sm text-muted-foreground">Digite a senha da transmissão para entrar.</p>
+              </div>
+              <Input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="Senha (6 dígitos)"
+                value={accessCode}
+                onChange={(event) => {
+                  setAccessCode(event.target.value.replace(/\D+/g, "").slice(0, 6))
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && accessCode.trim().length >= 4 && !isJoining) {
+                    void joinSession()
+                  }
+                }}
+              />
+              {errorMsg && <p className="text-xs text-destructive font-mono">{errorMsg}</p>}
+              <Button
+                className="w-full font-mono"
+                disabled={isJoining || accessCode.trim().length < 4}
+                onClick={() => {
+                  void joinSession()
+                }}
+              >
+                {isJoining ? "Conectando..." : "Conectar"}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
     return <StatusScreen icon={<Wifi className="h-8 w-8 animate-pulse" />} title="Connecting..." subtitle="Joining the host session" />
   }
 
