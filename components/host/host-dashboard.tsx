@@ -351,16 +351,33 @@ export function HostDashboard() {
       if (detectedModes.length > 0) {
         const supported = profileModeSupported(detectedModes, displayProfile)
         if (!supported) {
-          setAgentMessage(
-            `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available on monitor ${displayProfile.monitorId}. Select a detected mode first.`
-          )
-          return
+          if (displayModeManageSupported === false) {
+            setAgentMessage(
+              `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available on monitor ${displayProfile.monitorId}. ${displayModeManageReason || "This provider cannot add custom modes."}`
+            )
+            return
+          }
         }
       }
     }
     setDisplayActionBusy(applyNow ? "apply-profile" : "save-profile")
     try {
       const normalizedProfile = normalizeDraftProfile(displayProfile, displayProfileCapabilities)
+      if (applyNow) {
+        const detectedModes = agentHealth.display?.detectedModes || []
+        const supported = profileModeSupported(detectedModes, normalizedProfile)
+        if (detectedModes.length > 0 && !supported) {
+          const modeResult = await hostAgentClient.addDisplayMode(normalizedProfile)
+          if (typeof modeResult.supported === "boolean") {
+            setDisplayModeManageSupported(modeResult.supported)
+            setDisplayModeManageReason(modeResult.reason || null)
+          }
+          if (modeResult.status) {
+            setAgentHealth((prev) => ({ ...prev, available: true, display: modeResult.status }))
+            syncDisplayManageMetadataFromStatus(modeResult.status)
+          }
+        }
+      }
       const data = await hostAgentClient.setDisplayProfile(normalizedProfile, { applyNow })
       if (data.profile) {
         setDisplayProfile(data.profile)
@@ -402,7 +419,7 @@ export function HostDashboard() {
     } finally {
       setDisplayActionBusy("none")
     }
-  }, [agentHealth.display, displayConfigureReason, displayConfigureSupported, displayProfile, displayProfileCapabilities])
+  }, [agentHealth.display, displayConfigureReason, displayConfigureSupported, displayModeManageReason, displayModeManageSupported, displayProfile, displayProfileCapabilities])
 
   const setDisplayProfileNumberField = useCallback(
     (
@@ -841,6 +858,7 @@ export function HostDashboard() {
             !providerDisabled
             && statusDetectedModes.length > 0
             && !profileModeSupported(statusDetectedModes, normalizedProfile)
+            && displayModeManageSupported === false
           ) {
             setStartError(
               `Modo ${normalizedProfile.width}x${normalizedProfile.height}@${normalizedProfile.refreshHz}Hz nao esta nos modos detectados do monitor ${normalizedProfile.monitorId}.`
@@ -1411,13 +1429,14 @@ export function HostDashboard() {
   const selectedModeLabel = selectedModeDetected
     ? `${displayProfile.width}x${displayProfile.height} @${displayProfile.refreshHz}Hz ${displayProfile.colorDepth}bit`
     : `Custom ${displayProfile.width}x${displayProfile.height} @${displayProfile.refreshHz}Hz ${displayProfile.colorDepth}bit`
-  const invalidDraftModeForDetectedList = displayModeOptions.length > 0 && !selectedModeDetected
+  const modeMissingFromDetectedList = displayModeOptions.length > 0 && !selectedModeDetected
+  const invalidDraftModeForDetectedList = modeMissingFromDetectedList && displayModeManageSupported === false
   const saveApplyBlockedByMode = targetMonitorFound === false || invalidDraftModeForDetectedList
   const saveApplyBlockReason =
     targetMonitorFound === false
       ? `Target monitor ${displayProfile.monitorId} not detected.`
       : invalidDraftModeForDetectedList
-        ? `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available in detected modes.`
+        ? `Mode ${displayProfile.width}x${displayProfile.height}@${displayProfile.refreshHz}Hz is not available in detected modes and provider cannot add it.`
         : null
   const saveApplyDisabled = displayControlsDisabled || displayConfigureSupported === false || saveApplyBlockedByMode
   const startBlockedByProvider =
@@ -1858,7 +1877,12 @@ export function HostDashboard() {
                             )}
                             {invalidDraftModeForDetectedList && (
                               <p className="text-[10px] font-mono text-amber-600">
-                                Current draft mode is not in detected list. Pick a detected mode before Save + Apply.
+                                Current draft mode is not in detected list and provider cannot add custom modes.
+                              </p>
+                            )}
+                            {modeMissingFromDetectedList && displayModeManageSupported !== false && (
+                              <p className="text-[10px] font-mono text-muted-foreground">
+                                Draft mode is not currently detected. Save + Apply will try Add Mode first.
                               </p>
                             )}
                           </div>
