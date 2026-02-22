@@ -208,6 +208,8 @@ export function HostDashboard() {
   })
   const [agentMessage, setAgentMessage] = useState<string | null>(null)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
+  const [sessionAccessCode, setSessionAccessCode] = useState<string | null>(null)
+  const [sessionHostLabel, setSessionHostLabel] = useState<string>("Host")
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -231,6 +233,7 @@ export function HostDashboard() {
     controller: [],
     viewer: [],
   })
+  const lastViewerAutoApplyRef = useRef<number>(0)
 
   const [controllerStats, setControllerStats] = useState<StreamStats[]>([])
   const [viewerStats, setViewerStats] = useState<StreamStats[]>([])
@@ -932,7 +935,7 @@ export function HostDashboard() {
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", hostId }),
+        body: JSON.stringify({ action: "create", hostId, hostLabel: `Host ${hostId.slice(0, 6)}` }),
       })
       if (!res.ok) {
         throw new Error(`Session creation failed: ${res.status}`)
@@ -967,6 +970,8 @@ export function HostDashboard() {
         }
 
         setSessionToken(data.session.token)
+        setSessionAccessCode(data.session.accessCode || null)
+        setSessionHostLabel(data.session.hostLabel || `Host ${hostId.slice(0, 6)}`)
         setSessionId(data.session.id)
         setIsSharing(true)
         setStreamState("awaiting-clients")
@@ -1064,6 +1069,53 @@ export function HostDashboard() {
       ) || null
     }
 
+    if (signal.type === "viewer-capabilities" && resolvedRole === "viewer") {
+      if (!useHostAgent || agentStatus !== "available" || displayConfigureSupported === false) return
+
+      const now = Date.now()
+      if (now - lastViewerAutoApplyRef.current < 4000) return
+      lastViewerAutoApplyRef.current = now
+
+      const payload = signal.payload as {
+        width?: number
+        height?: number
+        availWidth?: number
+        availHeight?: number
+      }
+      const baseWidth = Number(payload.availWidth || payload.width)
+      const baseHeight = Number(payload.availHeight || payload.height)
+      if (!Number.isFinite(baseWidth) || !Number.isFinite(baseHeight) || baseWidth < 320 || baseHeight < 240) return
+
+      const normalized = normalizeDraftProfile(
+        {
+          ...displayProfile,
+          width: baseWidth,
+          height: baseHeight,
+        },
+        displayProfileCapabilities
+      )
+
+      try {
+        setDisplayActionBusy("apply-profile")
+        const result = await hostAgentClient.setDisplayProfile(normalized, { applyNow: true })
+        if (result.profile) {
+          setDisplayProfile(result.profile)
+        }
+        if (result.status) {
+          setAgentHealth((prev) => ({ ...prev, available: true, display: result.status }))
+          syncDisplayManageMetadataFromStatus(result.status)
+        }
+        displayProfileDirtyRef.current = false
+        setDisplayProfileDirty(false)
+        setAgentMessage(`Display auto-adjusted to viewer resolution ${normalized.width}x${normalized.height}.`)
+      } catch {
+        setAgentMessage("Viewer connected, but failed to auto-adjust display profile.")
+      } finally {
+        setDisplayActionBusy("none")
+      }
+      return
+    }
+
     if (!pc) return
     const roleForPc: ClientRole | undefined =
       resolvedRole
@@ -1106,7 +1158,7 @@ export function HostDashboard() {
         console.error("[v0] Failed to add ICE candidate:", err)
       }
     }
-  }, [sessionData])
+  }, [agentStatus, displayConfigureSupported, displayProfile, displayProfileCapabilities, sessionData, useHostAgent])
 
   const stopSharing = useCallback(async () => {
     setStreamState("stopping")
@@ -1164,6 +1216,7 @@ export function HostDashboard() {
 
     setIsSharing(false)
     setSessionToken(null)
+    setSessionAccessCode(null)
     setSessionId(null)
     setControllerStats([])
     setViewerStats([])
@@ -1682,6 +1735,17 @@ export function HostDashboard() {
                         </TooltipTrigger>
                         <TooltipContent>Copy join URL</TooltipContent>
                       </Tooltip>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 rounded-md border border-border bg-secondary/20 p-2.5">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-muted-foreground">Host</span>
+                        <span className="text-foreground">{sessionHostLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-muted-foreground">Access code</span>
+                        <span className="text-primary tracking-wider">{sessionAccessCode || "------"}</span>
+                      </div>
                     </div>
 
                     <Separator />
