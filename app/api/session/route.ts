@@ -119,6 +119,11 @@ export async function GET() {
   }
   return NextResponse.json({
     active: session.active,
+    sessionId: session.id,
+    token: session.token,
+    hostLabel: session.hostLabel,
+    hostId: session.hostId,
+    createdAt: session.createdAt,
     clientCount: session.clients.length,
     clients: session.clients,
     controlLocked: session.controlLocked,

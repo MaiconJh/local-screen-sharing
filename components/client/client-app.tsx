@@ -33,6 +33,7 @@ type ClientState = "connecting" | "connected" | "error" | "ended" | "full"
 export function ClientApp() {
   const searchParams = useSearchParams()
   const token = searchParams.get("token")
+  const qrCodeAccessCode = searchParams.get("code")
 
   const [clientId] = useState(() => Math.random().toString(36).substring(2, 10) + Date.now().toString(36))
   const [state, setState] = useState<ClientState>("connecting")
@@ -44,6 +45,7 @@ export function ClientApp() {
   const [authReady, setAuthReady] = useState(false)
   const [isJoining, setIsJoining] = useState(false)
   const [errorMsg, setErrorMsg] = useState("")
+  const attemptedQrAutoJoinRef = useRef(false)
 
   const [showStats, setShowStats] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -104,6 +106,11 @@ export function ClientApp() {
 
     preview()
   }, [token])
+
+  useEffect(() => {
+    if (!qrCodeAccessCode) return
+    setAccessCode(String(qrCodeAccessCode).replace(/\D+/g, "").slice(0, 6))
+  }, [qrCodeAccessCode])
 
   const sendViewerCapabilities = useCallback(async () => {
     if (!sessionId || !hostSignalTarget) return
@@ -261,7 +268,7 @@ export function ClientApp() {
     [clientId, sendViewerCapabilities, sessionId, tryPlayVideo]
   )
 
-  const joinSession = useCallback(async () => {
+  const joinSessionWithCode = useCallback(async (code: string) => {
     if (!token) return
     setIsJoining(true)
     setErrorMsg("")
@@ -269,7 +276,7 @@ export function ClientApp() {
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "join", token, accessCode: accessCode.trim(), clientId }),
+        body: JSON.stringify({ action: "join", token, accessCode: code.trim(), clientId }),
       })
       const data = await res.json()
 
@@ -323,7 +330,21 @@ export function ClientApp() {
     } finally {
       setIsJoining(false)
     }
-  }, [accessCode, clientId, handleHostSignal, hostLabel, token])
+  }, [clientId, handleHostSignal, hostLabel, token])
+
+  const joinSession = useCallback(async () => {
+    await joinSessionWithCode(accessCode)
+  }, [accessCode, joinSessionWithCode])
+
+
+  useEffect(() => {
+    if (!authReady || !qrCodeAccessCode || attemptedQrAutoJoinRef.current) return
+    const normalized = String(qrCodeAccessCode).replace(/\D+/g, "").slice(0, 6)
+    if (normalized.length < 4) return
+    attemptedQrAutoJoinRef.current = true
+    setAccessCode(normalized)
+    void joinSessionWithCode(normalized)
+  }, [authReady, joinSessionWithCode, qrCodeAccessCode])
 
   // Input forwarding for controller
   const sendInput = useCallback(

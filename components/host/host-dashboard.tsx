@@ -253,7 +253,7 @@ export function HostDashboard() {
   )
 
   const joinUrl = sessionToken
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join?token=${sessionToken}`
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join?token=${sessionToken}${sessionAccessCode ? `&code=${sessionAccessCode}` : ""}`
     : ""
 
   const getScreenShareSupportError = () => {
