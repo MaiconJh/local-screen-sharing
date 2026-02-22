@@ -4,6 +4,41 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --background: #0b1020;
+  --foreground: #e8eefc;
+  --card: #141b2d;
+  --card-foreground: #e8eefc;
+  --popover: #141b2d;
+  --popover-foreground: #e8eefc;
+  --primary: #6ee7a8;
+  --primary-foreground: #0b1020;
+  --secondary: #1f2940;
+  --secondary-foreground: #d0daef;
+  --muted: #1f2940;
+  --muted-foreground: #94a0bb;
+  --accent: #7aa6ff;
+  --accent-foreground: #f7f9ff;
+  --destructive: #ef6b6b;
+  --destructive-foreground: #fff5f5;
+  --border: #2a3552;
+  --input: #1b2438;
+  --ring: #6ee7a8;
+  --chart-1: #6ee7a8;
+  --chart-2: #7aa6ff;
+  --chart-3: #f4ce5e;
+  --chart-4: #ef6b6b;
+  --chart-5: #c389ff;
+  --sidebar: #111827;
+  --sidebar-foreground: #e8eefc;
+  --sidebar-primary: #6ee7a8;
+  --sidebar-primary-foreground: #0b1020;
+  --sidebar-accent: #1f2940;
+  --sidebar-accent-foreground: #d0daef;
+  --sidebar-border: #2a3552;
+  --sidebar-ring: #6ee7a8;
+
+  /* Modern browser overrides */
+  @supports (color: oklch(0 0 0)) {
   --background: oklch(0.13 0.005 260);
   --foreground: oklch(0.93 0.005 260);
   --card: oklch(0.17 0.005 260);
@@ -37,6 +72,7 @@
   --sidebar-accent-foreground: oklch(0.88 0.005 260);
   --sidebar-border: oklch(0.26 0.01 260);
   --sidebar-ring: oklch(0.72 0.19 155);
+  }
 }
 
 @theme inline {

@@ -1,5 +1,3 @@
-"use client"
-
 import { Monitor, ArrowRight, Wifi, Shield, Zap, Eye } from "lucide-react"
 import useSWR from "swr"
 import { Button } from "@/components/ui/button"
@@ -8,11 +6,15 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+interface LandingPageProps {
+  activeStreamer: {
+    token: string
+    hostLabel: string
+    clientCount: number
+  } | null
+}
 
-export function LandingPage() {
-  const { data } = useSWR("/api/session", fetcher, { refreshInterval: 2000 })
-  const activeStreamer = data?.active ? data : null
+export function LandingPage({ activeStreamer }: LandingPageProps) {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
