@@ -1,0 +1,30 @@
+
+> my-project@0.1.0 dev C:\Users\Maicon\Desktop\Local\screen-sharing-system
+> node scripts/dev-https.mjs
+
+[host-agent] Listening at http://127.0.0.1:47831
+⚠ Self-signed certificates are currently an experimental feature, use with caution.
+  Using already generated self signed certificate
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         https://localhost:3000
+- Network:       https://192.168.1.103:3000
+
+✓ Starting...
+✓ Ready in 1515ms
+ GET /api/host-agent/status 200 in 471ms (compile: 426ms, render: 44ms)
+⚠ Cross origin request detected from 192.168.1.103 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ GET /api/host-agent/status 200 in 15ms (compile: 5ms, render: 10ms)
+ GET /api/host-agent/display/profile 200 in 74ms (compile: 61ms, render: 12ms)
+ GET /api/host-agent/events 200 in 2.6s (compile: 344ms, render: 2.3s)
+ GET /host 200 in 2.1s (compile: 1422ms, render: 642ms)
+ GET /api/host-agent/display/profile 200 in 14ms (compile: 3ms, render: 10ms)
+ GET /api/host-agent/status 200 in 16ms (compile: 4ms, render: 12ms)
+ GET /api/host-agent/display/profile 200 in 13ms (compile: 6ms, render: 7ms)
+ GET /api/host-agent/status 200 in 12ms (compile: 4ms, render: 8ms)
+ GET /api/host-agent/display/profile 200 in 10ms (compile: 3ms, render: 7ms)
+ POST /api/host-agent/display/profile 200 in 640ms (compile: 4ms, render: 636ms)
+ GET /api/host-agent/display/status 200 in 86ms (compile: 61ms, render: 25ms)
+ POST /api/host-agent/display/ensure 200 in 733ms (compile: 54ms, render: 680ms)
+[?25h
+ ELIFECYCLE  Command failed with exit code 4294967295.
