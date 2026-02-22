@@ -9,7 +9,9 @@ export interface ConnectedClient {
 export interface Session {
   id: string
   token: string
+  accessCode: string
   hostId: string
+  hostLabel: string
   active: boolean
   createdAt: number
   clients: ConnectedClient[]
@@ -18,7 +20,7 @@ export interface Session {
 }
 
 export interface SignalMessage {
-  type: "offer" | "answer" | "ice-candidate" | "renegotiate"
+  type: "offer" | "answer" | "ice-candidate" | "renegotiate" | "viewer-capabilities"
   from: string
   to: string
   sessionId: string
