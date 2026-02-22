@@ -35,6 +35,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="stylesheet" href="/legacy.css" />
+      </head>
       <body className="font-sans antialiased">
         {children}
         <Analytics />
